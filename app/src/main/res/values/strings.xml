@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">HingeMeter</string>
+    <string name="angle_placeholder">0°</string>
+    <string name="angle_unavailable">N/A</string>
+</resources>
