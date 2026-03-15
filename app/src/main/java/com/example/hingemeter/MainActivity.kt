@@ -46,11 +46,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var pendingSeekMs: Long? = null
     private var pendingTargetFrameIndex: Long? = null
     private var videoSurface: Surface? = null
-    private val baseSeekIntervalMs = 16L
+    private val baseSeekIntervalMs = 30L
     private val maxSeekIntervalMs = 50L
     private val maxFrameStep = 8L
     private val fastStepDivisor = 6L
-    private val skipThresholdFrames = 48L
+    private val skipThresholdFrames = 32L
     private val sensorSamplingPeriodUs = 2000
     private val sensorMaxReportLatencyUs = 0
     private val minCutoffHz = 1.5f
