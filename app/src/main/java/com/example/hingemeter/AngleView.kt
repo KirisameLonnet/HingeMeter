@@ -1,5 +1,9 @@
 package com.example.hingemeter
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.AnimatorSet
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Movie
@@ -7,11 +11,15 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.net.Uri
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
+import android.view.animation.AccelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
 import java.util.Locale
@@ -27,11 +35,15 @@ class AngleView @JvmOverloads constructor(
     private val textPaintWhite = Paint(Paint.ANTI_ALIAS_FLAG)
     private val textPaintBlack = Paint(Paint.ANTI_ALIAS_FLAG)
     private val wedgePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val deletePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val deleteXPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val wedgePath = Path()
     private val wedgeRect = RectF()
     private val textScaleY = 1.12f
     private val minStickerScale = 0.05f
     private val maxStickerScale = 10f
+    private val deleteIconRadius: Float
+    private val deleteIconStroke: Float
     private var angleDegrees = 0f
     private var overrideText: String? = null
     private var lastAngleDegrees: Float? = null
@@ -46,6 +58,15 @@ class AngleView @JvmOverloads constructor(
     private var lastSpan = 0f
     private var lastRotation = 0f
     private var requestGifPicker: (() -> Unit)? = null
+    private var requestVideoPicker: (() -> Unit)? = null
+    private var requestVideoDeletion: (() -> Unit)? = null
+    private var isVideoModeEnabled = false
+    private var deleteMode = DeleteMode.NONE
+    private var deleteSticker: GifSticker? = null
+    private var deleteVideoX = 0f
+    private var deleteVideoY = 0f
+    private var isDeleteIconPressed = false
+    private val vibrator = context.getSystemService(Vibrator::class.java)
     private val gestureDetector = GestureDetector(context, GestureListener())
 
     init {
@@ -70,6 +91,22 @@ class AngleView @JvmOverloads constructor(
         textPaintBlack.typeface = typeface
 
         wedgePaint.color = white
+
+        deletePaint.color = ContextCompat.getColor(context, R.color.hinge_red)
+        deleteXPaint.color = white
+        deleteXPaint.style = Paint.Style.STROKE
+        deleteXPaint.strokeCap = Paint.Cap.ROUND
+        deleteIconRadius = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            18f,
+            resources.displayMetrics
+        )
+        deleteIconStroke = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            2.5f,
+            resources.displayMetrics
+        )
+        deleteXPaint.strokeWidth = deleteIconStroke
     }
 
     fun setAngle(angle: Float) {
@@ -92,6 +129,23 @@ class AngleView @JvmOverloads constructor(
         requestGifPicker = listener
     }
 
+    fun setOnRequestVideoPicker(listener: (() -> Unit)?) {
+        requestVideoPicker = listener
+    }
+
+    fun setOnRequestVideoDeletion(listener: (() -> Unit)?) {
+        requestVideoDeletion = listener
+    }
+
+    fun setVideoModeEnabled(enabled: Boolean) {
+        if (isVideoModeEnabled == enabled) return
+        isVideoModeEnabled = enabled
+        if (!enabled && deleteMode == DeleteMode.VIDEO) {
+            clearDeleteMode()
+        }
+        invalidate()
+    }
+
     fun setGif(uri: Uri) {
         val movie = context.contentResolver.openInputStream(uri)?.use { input ->
             Movie.decodeStream(input)
@@ -104,49 +158,57 @@ class AngleView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        canvas.drawColor(ContextCompat.getColor(context, R.color.hinge_black))
+        if (!isVideoModeEnabled) {
+            canvas.drawColor(ContextCompat.getColor(context, R.color.hinge_black))
+        }
 
         val centerX = width / 2f
         val centerY = height / 2f
         val sweepAngle = angleDegrees.coerceIn(0f, 180f)
-        if (sweepAngle > 0f) {
-            val radius = hypot(width.toFloat(), height.toFloat())
-            wedgeRect.set(
-                centerX - radius,
-                centerY - radius,
-                centerX + radius,
-                centerY + radius
-            )
-            wedgePath.reset()
-            wedgePath.moveTo(centerX, centerY)
-            val startAngle = 270f + sweepAngle / 2f
-            wedgePath.arcTo(wedgeRect, startAngle, -sweepAngle)
-            wedgePath.close()
-            canvas.drawPath(wedgePath, wedgePaint)
-        }
+        if (!isVideoModeEnabled) {
+            if (sweepAngle > 0f) {
+                val radius = hypot(width.toFloat(), height.toFloat())
+                wedgeRect.set(
+                    centerX - radius,
+                    centerY - radius,
+                    centerX + radius,
+                    centerY + radius
+                )
+                wedgePath.reset()
+                wedgePath.moveTo(centerX, centerY)
+                val startAngle = 270f + sweepAngle / 2f
+                wedgePath.arcTo(wedgeRect, startAngle, -sweepAngle)
+                wedgePath.close()
+                canvas.drawPath(wedgePath, wedgePaint)
+            }
 
-        val text = overrideText ?: formatAngle(angleDegrees)
-        val baseline = textBaseline(centerY)
-        val textWidth = textPaintWhite.measureText(text)
-        val textX = centerX - textWidth / 2f
+            val text = overrideText ?: formatAngle(angleDegrees)
+            val baseline = textBaseline(centerY)
+            val textWidth = textPaintWhite.measureText(text)
+            val textX = centerX - textWidth / 2f
 
-        canvas.save()
-        canvas.scale(1f, textScaleY, centerX, centerY)
-        canvas.drawText(text, textX, baseline, textPaintWhite)
-        canvas.restore()
-
-        if (sweepAngle > 0f) {
             canvas.save()
-            canvas.clipPath(wedgePath)
             canvas.scale(1f, textScaleY, centerX, centerY)
-            canvas.drawText(text, textX, baseline, textPaintBlack)
+            canvas.drawText(text, textX, baseline, textPaintWhite)
             canvas.restore()
+
+            if (sweepAngle > 0f) {
+                canvas.save()
+                canvas.clipPath(wedgePath)
+                canvas.scale(1f, textScaleY, centerX, centerY)
+                canvas.drawText(text, textX, baseline, textPaintBlack)
+                canvas.restore()
+            }
         }
 
         drawGifSticker(canvas)
+        drawDeleteIcon(canvas)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (handleDeleteIconTouch(event)) {
+            return true
+        }
         val handledByGesture = gestureDetector.onTouchEvent(event)
         if (stickers.isEmpty()) {
             return handledByGesture || super.onTouchEvent(event)
@@ -154,6 +216,9 @@ class AngleView @JvmOverloads constructor(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                if (deleteMode != DeleteMode.NONE) {
+                    clearDeleteMode()
+                }
                 val sticker = findStickerAt(event.x, event.y)
                 if (sticker != null) {
                     setActiveSticker(sticker)
@@ -284,6 +349,91 @@ class AngleView @JvmOverloads constructor(
         }
     }
 
+    private fun drawDeleteIcon(canvas: Canvas) {
+        if (deleteMode == DeleteMode.NONE) return
+        val (cx, cy) = deleteIconCenter()
+        if (cx == null || cy == null) return
+        val radius = if (isDeleteIconPressed) deleteIconRadius * 0.92f else deleteIconRadius
+        canvas.save()
+        canvas.drawCircle(cx, cy, radius, deletePaint)
+        val lineOffset = radius * 0.5f
+        canvas.drawLine(
+            cx - lineOffset,
+            cy - lineOffset,
+            cx + lineOffset,
+            cy + lineOffset,
+            deleteXPaint
+        )
+        canvas.drawLine(
+            cx - lineOffset,
+            cy + lineOffset,
+            cx + lineOffset,
+            cy - lineOffset,
+            deleteXPaint
+        )
+        canvas.restore()
+    }
+
+    private fun deleteIconCenter(): Pair<Float?, Float?> {
+        return when (deleteMode) {
+            DeleteMode.STICKER -> {
+                val sticker = deleteSticker
+                if (sticker == null) {
+                    Pair(null, null)
+                } else {
+                    Pair(stickerCenterX(sticker), stickerCenterY(sticker))
+                }
+            }
+            DeleteMode.VIDEO -> Pair(deleteVideoX, deleteVideoY)
+            DeleteMode.NONE -> Pair(null, null)
+        }
+    }
+
+    private fun handleDeleteIconTouch(event: MotionEvent): Boolean {
+        if (deleteMode == DeleteMode.NONE) return false
+        val (cx, cy) = deleteIconCenter()
+        if (cx == null || cy == null) return false
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                if (isPointInDeleteIcon(event.x, event.y, cx, cy)) {
+                    isDeleteIconPressed = true
+                    invalidate()
+                    return true
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                if (isDeleteIconPressed && isPointInDeleteIcon(event.x, event.y, cx, cy)) {
+                    isDeleteIconPressed = false
+                    vibrateDelete()
+                    when (deleteMode) {
+                        DeleteMode.STICKER -> {
+                            deleteSticker?.let { deleteStickerWithAnimation(it) }
+                        }
+                        DeleteMode.VIDEO -> {
+                            requestVideoDeletion?.invoke()
+                        }
+                        DeleteMode.NONE -> Unit
+                    }
+                    clearDeleteMode()
+                    return true
+                }
+                isDeleteIconPressed = false
+                invalidate()
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                isDeleteIconPressed = false
+                invalidate()
+            }
+        }
+        return false
+    }
+
+    private fun isPointInDeleteIcon(x: Float, y: Float, cx: Float, cy: Float): Boolean {
+        val dx = x - cx
+        val dy = y - cy
+        return dx * dx + dy * dy <= deleteIconRadius * deleteIconRadius
+    }
+
     private fun addSticker(movie: Movie) {
         val sticker = GifSticker(
             movie = movie,
@@ -321,6 +471,7 @@ class AngleView @JvmOverloads constructor(
     }
 
     private fun hitTestSticker(x: Float, y: Float, sticker: GifSticker): Boolean {
+        if (sticker.isDeleting) return false
         val centerX = stickerCenterX(sticker)
         val centerY = stickerCenterY(sticker)
         val dx = x - centerX
@@ -370,6 +521,49 @@ class AngleView @JvmOverloads constructor(
         }
     }
 
+    private fun deleteStickerWithAnimation(sticker: GifSticker) {
+        if (sticker.isDeleting) return
+        sticker.isDeleting = true
+        val startScale = sticker.scale
+        val popScale = startScale * 1.08f
+        val popAnimator = ValueAnimator.ofFloat(startScale, popScale).apply {
+            duration = 120
+            interpolator = OvershootInterpolator(1.2f)
+            addUpdateListener { animator ->
+                sticker.scale = animator.animatedValue as Float
+                invalidate()
+            }
+        }
+        val shrinkAnimator = ValueAnimator.ofFloat(popScale, 0f).apply {
+            duration = 150
+            interpolator = AccelerateInterpolator(2f)
+            addUpdateListener { animator ->
+                sticker.scale = animator.animatedValue as Float
+                invalidate()
+            }
+        }
+        AnimatorSet().apply {
+            playSequentially(popAnimator, shrinkAnimator)
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    stickers.remove(sticker)
+                    if (activeSticker == sticker) {
+                        activeSticker = null
+                    }
+                    invalidate()
+                }
+            })
+            start()
+        }
+    }
+
+    private fun clearDeleteMode() {
+        deleteMode = DeleteMode.NONE
+        deleteSticker = null
+        isDeleteIconPressed = false
+        invalidate()
+    }
+
     private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent): Boolean {
             return true
@@ -379,6 +573,39 @@ class AngleView @JvmOverloads constructor(
             requestGifPicker?.invoke()
             return true
         }
+
+        override fun onLongPress(e: MotionEvent) {
+            val sticker = findStickerAt(e.x, e.y)
+            when {
+                sticker != null -> {
+                    deleteMode = DeleteMode.STICKER
+                    deleteSticker = sticker
+                    vibrateQuick()
+                    invalidate()
+                }
+                isVideoModeEnabled -> {
+                    deleteMode = DeleteMode.VIDEO
+                    deleteVideoX = e.x
+                    deleteVideoY = e.y
+                    vibrateQuick()
+                    invalidate()
+                }
+                isTouchNearCenter(e.x, e.y) -> {
+                    vibrateQuick()
+                    requestVideoPicker?.invoke()
+                }
+            }
+        }
+    }
+
+    private fun isTouchNearCenter(x: Float, y: Float): Boolean {
+        if (width <= 0 || height <= 0) return false
+        val centerX = width / 2f
+        val centerY = height / 2f
+        val maxRadius = minOf(width, height) * 0.2f
+        val dx = x - centerX
+        val dy = y - centerY
+        return dx * dx + dy * dy <= maxRadius * maxRadius
     }
 
     private fun pointerSpan(event: MotionEvent): Float {
@@ -410,6 +637,27 @@ class AngleView @JvmOverloads constructor(
         var centerYPercent: Float,
         var scale: Float,
         var rotationDegrees: Float = 0f,
-        var initialized: Boolean
+        var initialized: Boolean,
+        var isDeleting: Boolean = false
     )
+
+    private enum class DeleteMode {
+        NONE,
+        STICKER,
+        VIDEO
+    }
+
+    private fun vibrateQuick() {
+        if (vibrator?.hasVibrator() != true) return
+        val effect = VibrationEffect.createOneShot(28, 180)
+        vibrator.vibrate(effect)
+    }
+
+    private fun vibrateDelete() {
+        if (vibrator?.hasVibrator() != true) return
+        val timings = longArrayOf(0, 50, 70, 70, 80)
+        val amplitudes = intArrayOf(0, 120, 180, 220, 40)
+        val effect = VibrationEffect.createWaveform(timings, amplitudes, -1)
+        vibrator.vibrate(effect)
+    }
 }
