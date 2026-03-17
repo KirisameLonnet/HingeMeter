@@ -6,6 +6,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
 import android.view.Choreographer
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 
@@ -16,9 +17,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var isListening = false
     private var lastAngleDegrees = 0f
 
-    private var isSoundEnabled = false
+    private var isSoundEnabled = true
     private var isSoundLoopActive = false
     private var creakAudioEngine: CreakAudioEngine? = null
+    private var soundToast: Toast? = null
 
     private val soundFrameCallback = Choreographer.FrameCallback {
         handleSoundFrame()
@@ -104,6 +106,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             creakAudioEngine?.startEngine()
             ensureSoundLoop()
         }
+        showSoundStatusToast()
     }
 
     private fun ensureSoundLoop() {
@@ -130,6 +133,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         }
         engine.updateWithLidAngle(lastAngleDegrees.toDouble())
         Choreographer.getInstance().postFrameCallback(soundFrameCallback)
+    }
+
+    private fun showSoundStatusToast() {
+        val messageId = if (isSoundEnabled) R.string.sound_on else R.string.sound_off
+        soundToast?.cancel()
+        soundToast = Toast.makeText(this, messageId, Toast.LENGTH_SHORT)
+        soundToast?.show()
     }
 
     companion object {

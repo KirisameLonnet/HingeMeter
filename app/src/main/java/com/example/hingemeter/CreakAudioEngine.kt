@@ -14,7 +14,6 @@ class CreakAudioEngine(context: Context) {
         private const val VELOCITY_QUIET = 100.0
         private const val MIN_RATE = 0.80
         private const val MAX_RATE = 1.10
-        private const val ANGLE_SMOOTHING = 0.05
         private const val VELOCITY_SMOOTHING = 0.3
         private const val MOVEMENT_THRESHOLD = 0.5
         private const val GAIN_RAMP_MS = 50.0
@@ -42,7 +41,6 @@ class CreakAudioEngine(context: Context) {
         private set
 
     private var lastLidAngle = 0.0
-    private var smoothedLidAngle = 0.0
     private var lastUpdateTimeSec = 0.0
     private var smoothedVelocity = 0.0
     private var targetGain = 0.0
@@ -100,7 +98,6 @@ class CreakAudioEngine(context: Context) {
         val currentTimeSec = nowSec()
         if (isFirstUpdate) {
             lastLidAngle = lidAngle
-            smoothedLidAngle = lidAngle
             lastUpdateTimeSec = currentTimeSec
             lastMovementTimeSec = currentTimeSec
             isFirstUpdate = false
@@ -110,17 +107,15 @@ class CreakAudioEngine(context: Context) {
         val deltaTime = currentTimeSec - lastUpdateTimeSec
         if (deltaTime <= 0.0 || deltaTime > 1.0) {
             lastUpdateTimeSec = currentTimeSec
+            lastLidAngle = lidAngle
             return
         }
 
-        smoothedLidAngle = (ANGLE_SMOOTHING * lidAngle) +
-            ((1.0 - ANGLE_SMOOTHING) * smoothedLidAngle)
-
-        val deltaAngle = smoothedLidAngle - lastLidAngle
+        val deltaAngle = lidAngle - lastLidAngle
+        lastLidAngle = lidAngle
         val instantVelocity = if (abs(deltaAngle) < MOVEMENT_THRESHOLD) {
             0.0
         } else {
-            lastLidAngle = smoothedLidAngle
             abs(deltaAngle / deltaTime)
         }
 
