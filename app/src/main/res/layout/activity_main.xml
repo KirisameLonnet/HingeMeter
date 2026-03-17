@@ -3,11 +3,6 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <TextureView
-        android:id="@+id/videoView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
-
     <com.example.hingemeter.AngleView
         android:id="@+id/angleView"
         android:layout_width="match_parent"

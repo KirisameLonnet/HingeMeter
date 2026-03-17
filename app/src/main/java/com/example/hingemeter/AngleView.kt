@@ -25,7 +25,6 @@ import androidx.core.content.res.ResourcesCompat
 import java.util.Locale
 import kotlin.math.hypot
 import kotlin.math.atan2
-import kotlin.math.roundToInt
 
 class AngleView @JvmOverloads constructor(
     context: Context,
@@ -58,13 +57,9 @@ class AngleView @JvmOverloads constructor(
     private var lastSpan = 0f
     private var lastRotation = 0f
     private var requestGifPicker: (() -> Unit)? = null
-    private var requestVideoPicker: (() -> Unit)? = null
-    private var requestVideoDeletion: (() -> Unit)? = null
-    private var isVideoModeEnabled = false
+    private var requestSoundToggle: (() -> Unit)? = null
     private var deleteMode = DeleteMode.NONE
     private var deleteSticker: GifSticker? = null
-    private var deleteVideoX = 0f
-    private var deleteVideoY = 0f
     private var isDeleteIconPressed = false
     private val vibrator = context.getSystemService(Vibrator::class.java)
     private val gestureDetector = GestureDetector(context, GestureListener())
@@ -129,21 +124,8 @@ class AngleView @JvmOverloads constructor(
         requestGifPicker = listener
     }
 
-    fun setOnRequestVideoPicker(listener: (() -> Unit)?) {
-        requestVideoPicker = listener
-    }
-
-    fun setOnRequestVideoDeletion(listener: (() -> Unit)?) {
-        requestVideoDeletion = listener
-    }
-
-    fun setVideoModeEnabled(enabled: Boolean) {
-        if (isVideoModeEnabled == enabled) return
-        isVideoModeEnabled = enabled
-        if (!enabled && deleteMode == DeleteMode.VIDEO) {
-            clearDeleteMode()
-        }
-        invalidate()
+    fun setOnRequestSoundToggle(listener: (() -> Unit)?) {
+        requestSoundToggle = listener
     }
 
     fun setGif(uri: Uri) {
@@ -158,47 +140,43 @@ class AngleView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (!isVideoModeEnabled) {
-            canvas.drawColor(ContextCompat.getColor(context, R.color.hinge_black))
-        }
+        canvas.drawColor(ContextCompat.getColor(context, R.color.hinge_black))
 
         val centerX = width / 2f
         val centerY = height / 2f
         val sweepAngle = angleDegrees.coerceIn(0f, 180f)
-        if (!isVideoModeEnabled) {
-            if (sweepAngle > 0f) {
-                val radius = hypot(width.toFloat(), height.toFloat())
-                wedgeRect.set(
-                    centerX - radius,
-                    centerY - radius,
-                    centerX + radius,
-                    centerY + radius
-                )
-                wedgePath.reset()
-                wedgePath.moveTo(centerX, centerY)
-                val startAngle = 270f + sweepAngle / 2f
-                wedgePath.arcTo(wedgeRect, startAngle, -sweepAngle)
-                wedgePath.close()
-                canvas.drawPath(wedgePath, wedgePaint)
-            }
+        if (sweepAngle > 0f) {
+            val radius = hypot(width.toFloat(), height.toFloat())
+            wedgeRect.set(
+                centerX - radius,
+                centerY - radius,
+                centerX + radius,
+                centerY + radius
+            )
+            wedgePath.reset()
+            wedgePath.moveTo(centerX, centerY)
+            val startAngle = 270f + sweepAngle / 2f
+            wedgePath.arcTo(wedgeRect, startAngle, -sweepAngle)
+            wedgePath.close()
+            canvas.drawPath(wedgePath, wedgePaint)
+        }
 
-            val text = overrideText ?: formatAngle(angleDegrees)
-            val baseline = textBaseline(centerY)
-            val textWidth = textPaintWhite.measureText(text)
-            val textX = centerX - textWidth / 2f
+        val text = overrideText ?: formatAngle(angleDegrees)
+        val baseline = textBaseline(centerY)
+        val textWidth = textPaintWhite.measureText(text)
+        val textX = centerX - textWidth / 2f
 
+        canvas.save()
+        canvas.scale(1f, textScaleY, centerX, centerY)
+        canvas.drawText(text, textX, baseline, textPaintWhite)
+        canvas.restore()
+
+        if (sweepAngle > 0f) {
             canvas.save()
+            canvas.clipPath(wedgePath)
             canvas.scale(1f, textScaleY, centerX, centerY)
-            canvas.drawText(text, textX, baseline, textPaintWhite)
+            canvas.drawText(text, textX, baseline, textPaintBlack)
             canvas.restore()
-
-            if (sweepAngle > 0f) {
-                canvas.save()
-                canvas.clipPath(wedgePath)
-                canvas.scale(1f, textScaleY, centerX, centerY)
-                canvas.drawText(text, textX, baseline, textPaintBlack)
-                canvas.restore()
-            }
         }
 
         drawGifSticker(canvas)
@@ -384,7 +362,6 @@ class AngleView @JvmOverloads constructor(
                     Pair(stickerCenterX(sticker), stickerCenterY(sticker))
                 }
             }
-            DeleteMode.VIDEO -> Pair(deleteVideoX, deleteVideoY)
             DeleteMode.NONE -> Pair(null, null)
         }
     }
@@ -408,9 +385,6 @@ class AngleView @JvmOverloads constructor(
                     when (deleteMode) {
                         DeleteMode.STICKER -> {
                             deleteSticker?.let { deleteStickerWithAnimation(it) }
-                        }
-                        DeleteMode.VIDEO -> {
-                            requestVideoDeletion?.invoke()
                         }
                         DeleteMode.NONE -> Unit
                     }
@@ -583,16 +557,9 @@ class AngleView @JvmOverloads constructor(
                     vibrateQuick()
                     invalidate()
                 }
-                isVideoModeEnabled -> {
-                    deleteMode = DeleteMode.VIDEO
-                    deleteVideoX = e.x
-                    deleteVideoY = e.y
-                    vibrateQuick()
-                    invalidate()
-                }
                 isTouchNearCenter(e.x, e.y) -> {
                     vibrateQuick()
-                    requestVideoPicker?.invoke()
+                    requestSoundToggle?.invoke()
                 }
             }
         }
@@ -643,8 +610,7 @@ class AngleView @JvmOverloads constructor(
 
     private enum class DeleteMode {
         NONE,
-        STICKER,
-        VIDEO
+        STICKER
     }
 
     private fun vibrateQuick() {
