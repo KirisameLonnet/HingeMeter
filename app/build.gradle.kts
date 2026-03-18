@@ -8,7 +8,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.hingemeter"
+        applicationId = "com.hingemeter.jlxctech"
         minSdk = 30
         targetSdk = 36
         versionCode = 1
